@@ -5,10 +5,10 @@ use bevy::render::texture::ImageSampler::Descriptor;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::utils::HashMap;
 use noisy_bevy::simplex_noise_2d_seeded;
-use crate::{App, Mesh, Plugin, Vec2, Component, Indices, Vec3, PrimitiveTopology, Player, Transform, Commands, Assets, ResMut, Res, StandardMaterial, Color, default, PbrBundle, TerrainMaterial, MaterialMeshBundle, Handle, With, Entity, NoiseSettings, AssetServer, ImageSettings, SamplerDescriptor, AddressMode, EventReader, Image, AssetEvent, Fog, Vec4, RenderAssets};
+use crate::{App, Mesh, Plugin, Vec2, Component, Indices, Vec3, PrimitiveTopology, Player, Transform, Commands, Assets, ResMut, Res, StandardMaterial, Color, default, PbrBundle, TerrainMaterial, MaterialMeshBundle, Handle, With, Entity, NoiseSettings, AssetServer, ImageSettings, SamplerDescriptor, AddressMode, EventReader, Image, AssetEvent, Fog, Vec4, RenderAssets, noise};
 
-const TERRAIN_CHUNK_SIZE: u32 = 256; // in meters
-const RENDER_DISTANCE_CHUNKS: u32 = 5;
+pub const TERRAIN_CHUNK_SIZE: u32 = 256; // in meters
+pub const RENDER_DISTANCE_CHUNKS: u32 = 5;
 
 /// Includes systems for procedural terrain generation
 pub(crate) struct TerrainPlugin;
@@ -27,8 +27,16 @@ pub(crate) struct Terrain {
 
     /// Stores a handle to the main terrain material.
     terrain_material_handle: Option<Handle<TerrainMaterial>>,
+
+    /// Albedo texture handle for grass.
     grass_texture_handle: Option<Handle<Image>>,
+    /// Albedo texture handle for rock.
     rock_texture_handle: Option<Handle<Image>>,
+
+    /// Normal map handle for grass.
+    grass_normal_handle: Option<Handle<Image>>,
+    /// Normal map handle for rock.
+    rock_normal_handle: Option<Handle<Image>>,
 }
 
 impl Default for Terrain {
@@ -40,6 +48,8 @@ impl Default for Terrain {
             terrain_material_handle: None,
             grass_texture_handle: None,
             rock_texture_handle: None,
+            grass_normal_handle: None,
+            rock_normal_handle: None,
         }
     }
 }
@@ -68,17 +78,19 @@ fn setup(
     mut terrain_res: ResMut<Terrain>,
     asset_server: Res<AssetServer>,
 ) {
-    let grass_albedo_handle = asset_server.load("textures/grass1-albedo3.png");
+    let grass_albedo_handle = asset_server.load("textures/grass.jpg");
     let grass_normal_handle = asset_server.load("textures/grass1-normal1-ogl.png");
     let rock_albedo_handle = asset_server.load("textures/rock.jpg");
 
-    terrain_res.grass_texture_handle = Some(grass_handle.clone());
-    terrain_res.rock_texture_handle = Some(rock_handle.clone());
+    terrain_res.grass_texture_handle = Some(grass_albedo_handle.clone());
+    terrain_res.rock_texture_handle = Some(rock_albedo_handle.clone());
+    terrain_res.grass_normal_handle = Some(grass_normal_handle.clone());
+    terrain_res.rock_normal_handle = None;
 
     let pbr = StandardMaterial {
-        perceptual_roughness: 0.5,
+        perceptual_roughness: 0.9,
         metallic: 0.0,
-        reflectance: 0.5,
+        reflectance: 0.2,
         ..default()
     };
 
@@ -101,7 +113,7 @@ fn setup(
     terrain_res.terrain_material_handle = Some(terrain_material_handle);
 }
 
-/// A messy workaround to set sampler address modes for the terrain textures
+/// A messy workaround to set sampler address modes for the terrain textures (needed to sample without UVs)
 fn configure_terrain_images(
     terrain_res: Res<Terrain>,
     mut images: ResMut<Assets<Image>>,
@@ -111,14 +123,13 @@ fn configure_terrain_images(
     descriptor.address_mode_v = AddressMode::Repeat;
     descriptor.address_mode_w = AddressMode::Repeat;
 
-    let mut grass = images.get_mut(terrain_res.grass_texture_handle.as_ref().unwrap());
-    if let Some(image) = grass {
-        image.sampler_descriptor = Descriptor(descriptor.clone());
-    }
-
-    let mut rock = images.get_mut(&terrain_res.rock_texture_handle.as_ref().unwrap());
-    if let Some(image) = rock {
-        image.sampler_descriptor = Descriptor(descriptor.clone());
+    let image_handles = [terrain_res.rock_texture_handle.clone(), terrain_res.rock_normal_handle.clone(), terrain_res.grass_texture_handle.clone(), terrain_res.rock_normal_handle.clone()];
+    for handle in image_handles {
+        if handle.is_none() { continue }
+        let mut texture = images.get_mut(handle.as_ref().unwrap());
+        if let Some(image) = texture {
+            image.sampler_descriptor = Descriptor(descriptor.clone());
+        }
     }
 }
 
@@ -150,18 +161,13 @@ fn generate_terrain(
             // Calculate meshes asynchronously
             let noise_settings = noise_settings.clone();
             let task = thread_pool.spawn(async move {
-                let noise_fn = move |x: f64, y: f64| -> f64 {
-                    //let noise = noise::Perlin::new(noise_settings.seed);
-                    noise_settings.amplitude * simplex_noise_2d_seeded(Vec2::new((x as f32 - TERRAIN_CHUNK_SIZE as f32 / 2.) / noise_settings.scale.0 as f32, (y as f32 - TERRAIN_CHUNK_SIZE as f32 / 2.)  / noise_settings.scale.1 as f32), noise_settings.seed as f32) as f64
-                        + 5. * simplex_noise_2d_seeded(Vec2::new((x as f32 - TERRAIN_CHUNK_SIZE as f32 / 2.) / 100., (y as f32 - TERRAIN_CHUNK_SIZE as f32 / 2.)  / 100.), noise_settings.seed as f32 + 1.) as f64
-
-                    //noise_settings.amplitude * noise.get([(x - TERRAIN_CHUNK_SIZE as f64 / 2.) / noise_settings.scale.0, (y - TERRAIN_CHUNK_SIZE as f64 / 2.) / noise_settings.scale.0])
-                };
+                let noise_fn = noise::get_heightmap_function(TERRAIN_CHUNK_SIZE as f32, noise_settings);
 
                 let (vertices, indices) = mesh_data_from_perlin(noise_fn, TERRAIN_CHUNK_SIZE + 1, TERRAIN_CHUNK_SIZE + 1, chunk_position);
-                let mut normals = calculate_normals(&vertices, &indices);
+                let normals = calculate_normals(&vertices, &indices);
+                let mut mesh = build_mesh(vertices, indices, normals);
 
-                (current_id.clone(), chunk_position, build_mesh(vertices, indices, normals))
+                (current_id.clone(), chunk_position, mesh)
             });
 
             commands.spawn().insert(GenerateChunkMeshTask(task));
@@ -217,7 +223,6 @@ fn remove_unused_terrain(
     let player_chunk_y = ((player_position.y + TERRAIN_CHUNK_SIZE as f32 / 2.) / TERRAIN_CHUNK_SIZE as f32).floor() as i32;
 
     // Only retain chunks that are inside the render distance
-    // The newly removed chunks will be cleaned in remove_extra_chunks.
     terrain_res.loaded_chunks_pos.retain(|_, pos| {
         if pos.x < player_chunk_x as f32 - RENDER_DISTANCE_CHUNKS as f32 || pos.x > player_chunk_x as f32 + RENDER_DISTANCE_CHUNKS as f32 {
             false

@@ -30,14 +30,14 @@ var grass_albedo: texture_2d<f32>;
 var grass_albedo_sampler: sampler;
 
 @group(1) @binding(5)
-var rock_tex: texture_2d<f32>;
+var rock_albedo: texture_2d<f32>;
 @group(1) @binding(6)
-var rock_sampler: sampler;
+var rock_albedo_sampler: sampler;
 
 @group(1) @binding(7)
-var grass_albedo: texture_2d<f32>;
+var grass_normal: texture_2d<f32>;
 @group(1) @binding(8)
-var grass_albedo_sampler: sampler;
+var grass_normal_sampler: sampler;
 
 @group(1) @binding(9)
 var rock_normal: texture_2d<f32>;
@@ -114,9 +114,9 @@ fn fragment(
 ) -> @location(0) vec4<f32> {
     let slope = 1.0 - in.world_normal.y;
     let blend_amount = slope * 10.;
-    let scale = 0.08;
+    let scale = 0.15;
 
-    let grass = textureSample(grass_tex, grass_sampler, in.world_position.xz * scale);
+    let grass = textureSample(grass_albedo, grass_albedo_sampler, in.world_position.xz * scale);
     let grass_pbr = get_pbr_color(grass, in, grass_pbr_material);
 
     //let rock = textureSample(rock_tex, rock_sampler, in.world_position.xz * scale);
@@ -126,6 +126,6 @@ fn fragment(
     let fog_contrib = exponential_fog(distance);
 
     var output_color = grass_pbr;
-    //output_color = vec4<f32>(mix(output_color.rgb, fog_contrib.rgb, fog_contrib.a), output_color.a);
+    output_color = vec4<f32>(mix(output_color.rgb, fog_contrib.rgb, fog_contrib.a), output_color.a);
     return output_color;
 }

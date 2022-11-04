@@ -1,4 +1,7 @@
 mod terrain_generator;
+mod noise;
+mod lines;
+mod road_generator;
 
 use std::ops::RangeInclusive;
 use bevy::pbr::StandardMaterialUniform;
@@ -7,6 +10,7 @@ use bevy::prelude::*;
 use bevy_atmosphere::prelude::*;
 use bevy::prelude::shape::Cube;
 use bevy::reflect::{TypeUuid, Uuid};
+use bevy::render::camera::Projection;
 use bevy::render::mesh::{Indices, MeshVertexAttribute, PrimitiveTopology};
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_resource::{AddressMode, AsBindGroup, AsBindGroupError, BindGroupLayout, PreparedBindGroup, SamplerDescriptor, ShaderRef};
@@ -17,11 +21,11 @@ use bevy_egui::{egui, EguiContext, EguiPlugin};
 use bevy_flycam::{FlyCam, MovementSettings, NoCameraPlayerPlugin, PlayerPlugin};
 use bevy::render::extract_resource::ExtractResource;
 use bevy::render::render_resource::ShaderType;
+use crate::road_generator::RoadPlugin;
 
 use crate::terrain_generator::{Terrain, TerrainPlugin};
 
 const SEED: u32 = 1354251456;
-const TERRAIN_CHUNK_SIZE: u32 = 256; // in meters
 
 #[derive(Copy, Clone)]
 struct NoiseSettings {
@@ -60,29 +64,31 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugin(WireframePlugin)
         .add_plugin(NoCameraPlayerPlugin)
-        //.add_plugin(AtmospherePlugin)
+        .add_plugin(AtmospherePlugin)
         .add_plugin(TerrainPlugin)
+        .add_plugin(RoadPlugin)
         .add_plugin(EguiPlugin)
         .add_plugin(MaterialPlugin::<TerrainMaterial>::default())
 
+        .insert_resource(Msaa { samples: 4 })
         .insert_resource(WindowDescriptor {
-            present_mode: PresentMode::AutoNoVsync,
+            present_mode: PresentMode::AutoVsync,
             ..default()
         })
         .insert_resource(MovementSettings {
             sensitivity: 0.00012, // default: 0.00012
-            speed: 1000.0, // default: 12.0
+            speed: 100.0, // default: 12.0
         })
         .insert_resource(NoiseSettings::default())
         .insert_resource(Atmosphere::default()) // Default Atmosphere material, we can edit it to simulate another planet
         .insert_resource(CycleTimer(Timer::new(
-            bevy::utils::Duration::from_millis(50), // Update our atmosphere every 50ms (in a real game, this would be much slower, but for the sake of an example we use a faster update)
+            bevy::utils::Duration::from_millis(10), // Update our atmosphere every 50ms (in a real game, this would be much slower, but for the sake of an example we use a faster update)
             true,
         )))
 
         .add_startup_system(setup)
         .add_system(ui)
-        //.add_system(daylight_cycle)
+        .add_system(daylight_cycle)
 
         .run();
 }
@@ -108,12 +114,12 @@ fn daylight_cycle(
     timer.0.tick(time.delta());
 
     if timer.0.finished() {
-        let t = time.time_since_startup().as_secs() as f32 / 2000.0;
+        let t: f32 = 40.;
         atmosphere.sun_position = Vec3::new(0., t.sin(), t.cos());
 
         if let Some((mut light_trans, mut directional)) = query.single_mut().into() {
             light_trans.rotation = Quat::from_rotation_x(-t.sin().atan2(t.cos()));
-            directional.illuminance = t.sin().max(0.0).powf(2.0) * 100000.0;
+            directional.illuminance = t.sin().max(0.0).powf(2.0) * 50000.0;
         }
     }
 }
@@ -150,8 +156,11 @@ fn setup(
     });
 
     // camera
+    let mut perspective_proj = PerspectiveProjection::default();
+    perspective_proj.far = 5000.;
     commands.spawn_bundle(Camera3dBundle {
         transform: Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+        projection: Projection::Perspective(perspective_proj),
         ..default()
     })
         .insert(FlyCam)
@@ -161,7 +170,7 @@ fn setup(
 
 fn ui(
     mut egui_context: ResMut<EguiContext>,
-    mut noise_settings: ResMut<NoiseSettings>,
+    mut noise: ResMut<NoiseSettings>,
     mut terrain_res: ResMut<Terrain>,
 ) {
     let mut any_changed = false;
@@ -170,22 +179,22 @@ fn ui(
 
         ui.horizontal(|ui| {
             ui.label("Amplitude");
-            let modified = ui.add(egui::Slider::new(&mut noise_settings.amplitude, RangeInclusive::new(0., 15.))).changed();
+            let modified = ui.add(egui::Slider::new(&mut noise.amplitude, RangeInclusive::new(0., 15.))).changed();
             if modified {
                 any_changed = true;
             }
         });
         ui.horizontal(|ui| {
             ui.label("Frequency");
-            let modified = ui.add(egui::Slider::new(&mut noise_settings.frequency, RangeInclusive::new(0., 15.))).changed();
+            let modified = ui.add(egui::Slider::new(&mut noise.frequency, RangeInclusive::new(0., 15.))).changed();
             if modified {
                 any_changed = true;
             }
         });
         ui.horizontal(|ui| {
             ui.label("Scale (x, y)");
-            let modified_x = ui.add(egui::Slider::new(&mut noise_settings.scale.0, RangeInclusive::new(0.01, 1000.))).changed();
-            let modified_y = ui.add(egui::Slider::new(&mut noise_settings.scale.1, RangeInclusive::new(0.01, 1000.))).changed();
+            let modified_x = ui.add(egui::Slider::new(&mut noise.scale.0, RangeInclusive::new(0.01, 1000.))).changed();
+            let modified_y = ui.add(egui::Slider::new(&mut noise.scale.1, RangeInclusive::new(0.01, 1000.))).changed();
             if modified_x || modified_y {
                 any_changed = true;
             }
