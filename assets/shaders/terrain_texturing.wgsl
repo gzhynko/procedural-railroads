@@ -114,7 +114,7 @@ fn fragment(
 ) -> @location(0) vec4<f32> {
     let slope = 1.0 - in.world_normal.y;
     let blend_amount = slope * 10.;
-    let scale = 0.15;
+    let scale = 1.;
 
     let grass = textureSample(grass_albedo, grass_albedo_sampler, in.world_position.xz * scale);
     let grass_pbr = get_pbr_color(grass, in, grass_pbr_material);
