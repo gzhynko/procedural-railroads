@@ -1,0 +1,8 @@
+({
+    "textures.terrain.grass": File (
+        path: "textures/grass.jpg",
+    ),
+    "textures.terrain.rock": File (
+        path: "textures/Rock5.png",
+    ),
+})

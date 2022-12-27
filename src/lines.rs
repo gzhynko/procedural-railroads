@@ -1,7 +1,9 @@
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::render::mesh::MeshVertexBufferLayout;
 use bevy::render::render_resource::{PolygonMode, RenderPipelineDescriptor, SpecializedMeshPipelineError};
-use crate::{Color, Material, Mesh, PrimitiveTopology, AsBindGroup, TypeUuid, ShaderRef, Vec3};
+use crate::{Color, Material, Mesh, PrimitiveTopology, Vec3};
+use bevy::reflect::{TypeUuid};
+use bevy::render::render_resource::{ShaderRef, AsBindGroup};
 
 #[derive(Default, AsBindGroup, TypeUuid, Debug, Clone)]
 #[uuid = "050ce6ac-080a-4d8c-b6b5-b5bab7560d8f"]

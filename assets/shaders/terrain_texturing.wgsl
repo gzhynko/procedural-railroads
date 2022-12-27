@@ -34,16 +34,6 @@ var rock_albedo: texture_2d<f32>;
 @group(1) @binding(6)
 var rock_albedo_sampler: sampler;
 
-@group(1) @binding(7)
-var grass_normal: texture_2d<f32>;
-@group(1) @binding(8)
-var grass_normal_sampler: sampler;
-
-@group(1) @binding(9)
-var rock_normal: texture_2d<f32>;
-@group(1) @binding(10)
-var rock_normal_sampler: sampler;
-
 fn exponential_fog(
     distance: f32,
 ) -> vec4<f32> {
@@ -85,19 +75,25 @@ fn get_pbr_color(
 
     pbr_input.frag_coord = in.frag_coord;
     pbr_input.world_position = in.world_position;
-    pbr_input.world_normal = in.world_normal;
+    pbr_input.world_normal = prepare_world_normal(
+        in.world_normal,
+        (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_DOUBLE_SIDED_BIT) != 0u,
+        in.is_front,
+    );
 
     pbr_input.is_orthographic = view.projection[3].w == 1.0;
 
-    pbr_input.N = prepare_normal(
-        material.flags,
-        in.world_normal,
+    pbr_input.N = apply_normal_mapping(
+        pbr_input.material.flags,
+        pbr_input.world_normal,
 #ifdef VERTEX_TANGENTS
 #ifdef STANDARDMATERIAL_NORMAL_MAP
         in.world_tangent,
 #endif
 #endif
-        in.is_front,
+#ifdef VERTEX_UVS
+        in.uv,
+#endif
     );
     pbr_input.V = calculate_view(in.world_position, pbr_input.is_orthographic);
     output_color = pbr(pbr_input);
@@ -112,20 +108,27 @@ fn get_pbr_color(
 fn fragment(
     in: FragmentInput,
 ) -> @location(0) vec4<f32> {
-    let slope = 1.0 - in.world_normal.y;
-    let blend_amount = slope * 10.;
-    let scale = 1.;
-
-    let grass = textureSample(grass_albedo, grass_albedo_sampler, in.world_position.xz * scale);
-    let grass_pbr = get_pbr_color(grass, in, grass_pbr_material);
-
-    //let rock = textureSample(rock_tex, rock_sampler, in.world_position.xz * scale);
-    //let rock_pbr = get_pbr_color(rock, in, rock_pbr_material);
-
     let distance = length(view.world_position.xyz - in.world_position.xyz);
     let fog_contrib = exponential_fog(distance);
 
-    var output_color = grass_pbr;
+    // Texture scale.
+    let scale = 4.;
+
+    // Sample the textures and apply pbr to each of them.
+    let rock = textureSample(rock_albedo, rock_albedo_sampler, in.world_position.xz / scale);
+    let grass = textureSample(grass_albedo, grass_albedo_sampler, in.world_position.xz / scale);
+    let rock_pbr = get_pbr_color(rock, in, rock_pbr_material);
+    let grass_pbr = get_pbr_color(grass, in, grass_pbr_material);
+
+    // Make the textures "fade" into their average colors over distance.
+    let grass_distance_adjusted = vec4<f32>(mix(grass_pbr.rgb, vec3<f32>(0.31, 0.57, 0.17), min(distance / 300., 1.)), 1.0);
+
+    // Blend the textures based on slope.
+    let slope = pow(1.0 - in.world_normal.y, 2.);
+    let blend_amount = slope * 5.;
+    var output_color = vec4<f32>(mix(grass_distance_adjusted.rgb, rock_pbr.rgb, min(blend_amount, 1.)), 1.0);
+
+    // Modify the output color to include the fog contribution.
     output_color = vec4<f32>(mix(output_color.rgb, fog_contrib.rgb, fog_contrib.a), output_color.a);
     return output_color;
 }

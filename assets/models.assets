@@ -1,0 +1,5 @@
+({
+    "models.track.cross_section": File (
+        path: "models/track.glb",
+    ),
+})
