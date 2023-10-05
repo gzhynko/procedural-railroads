@@ -8,19 +8,16 @@ use bevy::utils::HashMap;
 use bevy_mod_picking::PickableBundle;
 use bevy::render::extract_resource::ExtractResource;
 use bevy::render::render_resource::ShaderType;
-use bevy::reflect::{TypeUuid};
+use bevy::reflect::{TypePath, TypeUuid};
 
-use crate::{App, Mesh, Plugin, Vec2, Component, Indices, Vec3, PrimitiveTopology, Player, Transform, Commands, Assets, ResMut, Res, StandardMaterial, default, MaterialMeshBundle, Handle, With, Entity, NoiseSettings, SamplerDescriptor, AddressMode, Image, Vec4, RenderAssets, noise};
-use crate::assets::{AssetLoadingState, TextureAssets};
+use crate::{Mesh, Vec2, Component, Indices, Vec3, PrimitiveTopology, Player, Transform, Commands, Assets, ResMut, Res, StandardMaterial, default, MaterialMeshBundle, Handle, With, Entity, NoiseSettings, SamplerDescriptor, AddressMode, Image, Vec4, RenderAssets, noise};
+use crate::assets::{TextureAssets};
 use crate::shape::Plane;
 
-pub const TERRAIN_CHUNK_SIZE: u32 = 256; // in meters
+pub const TERRAIN_CHUNK_SIZE: u32 = 1000; // in meters
 pub const RENDER_DISTANCE_CHUNKS: u32 = 5;
 
-pub const WATER_LEVEL: f32 = -15.;
-
-/// Includes systems for procedural terrain generation
-pub(crate) struct TerrainPlugin;
+pub const WATER_LEVEL: f32 = -23.;
 
 /// The main terrain resource
 #[derive(Resource)]
@@ -57,41 +54,17 @@ impl Default for Terrain {
     }
 }
 
-impl Plugin for TerrainPlugin {
-    fn build(&self, app: &mut App) {
-        app
-            .add_plugin(MaterialPlugin::<TerrainMaterial>::default())
-
-            .insert_resource(Terrain::default())
-
-            .add_system_set(
-                SystemSet::on_enter(AssetLoadingState::AssetsLoaded)
-                    .with_system(setup_terrain)
-                    .with_system(setup_water),
-            )
-
-            .add_system_set(
-                SystemSet::on_update(AssetLoadingState::AssetsLoaded)
-                    .with_system(spawn_generated_chunks)
-                    .with_system(generate_terrain)
-                    .with_system(remove_unused_terrain)
-                    .with_system(update_water_plane)
-                    .with_system(configure_terrain_images)
-            );
-    }
-}
-
 #[derive(Component)]
 pub(crate) struct TerrainChunk(u64);
 
 #[derive(Component)]
-struct GenerateChunkMeshTask(Task<(u64, Vec2, Mesh)>);
+pub(crate) struct GenerateChunkMeshTask(Task<(u64, Vec2, Mesh)>);
 
 /// Marker to update water plane position
 #[derive(Component)]
-struct WaterPlane;
+pub(crate) struct WaterPlane;
 
-fn setup_terrain(
+pub(crate) fn setup_terrain(
     mut terrain_materials: ResMut<Assets<TerrainMaterial>>,
     mut terrain_res: ResMut<Terrain>,
     texture_assets: Res<TextureAssets>
@@ -109,15 +82,8 @@ fn setup_terrain(
         ..default()
     };
 
-    let fog = Fog {
-        color: Vec4::new(0.53, 0.81, 0.92, 1.),
-        density_or_start: 0.002,
-        end: 0.0
-    };
-
     // TODO: Add normal map support (pass them to RenderAssets)
     let terrain_material_handle = terrain_materials.add(TerrainMaterial {
-        fog,
         grass_pbr_material: pbr.clone().as_bind_group_shader_type(&RenderAssets::default()),
         rock_pbr_material: pbr.clone().as_bind_group_shader_type(&RenderAssets::default()),
         grass_albedo_texture: Some(grass_albedo_handle),
@@ -126,7 +92,7 @@ fn setup_terrain(
     terrain_res.terrain_material_handle = Some(terrain_material_handle);
 }
 
-fn setup_water(
+pub(crate) fn setup_water(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut standard_materials: ResMut<Assets<StandardMaterial>>,
@@ -150,7 +116,7 @@ fn setup_water(
         .insert(WaterPlane);
 }
 
-fn update_water_plane(
+pub(crate) fn update_water_plane(
     mut water_plane_transform_query: Query<&mut Transform, (With<WaterPlane>, Without<Player>)>,
     player_transform_query: Query<&Transform, (With<Player>, Without<WaterPlane>)>,
 ) {
@@ -160,7 +126,7 @@ fn update_water_plane(
 }
 
 /// A messy workaround to set sampler address modes for the terrain textures (needed to sample without UVs)
-fn configure_terrain_images(
+pub(crate) fn configure_terrain_images(
     terrain_res: Res<Terrain>,
     mut images: ResMut<Assets<Image>>,
 ) {
@@ -180,7 +146,7 @@ fn configure_terrain_images(
 }
 
 /// Spawns threads to generate chunk meshes. The generated chunks are then spawned in `spawn_generated_chunks`
-fn generate_terrain(
+pub(crate) fn generate_terrain(
     player_query: Query<&Transform, With<Player>>,
     mut terrain_res: ResMut<Terrain>,
 
@@ -209,7 +175,7 @@ fn generate_terrain(
             let task = thread_pool.spawn(async move {
                 let noise_fn = noise::get_heightmap_function(TERRAIN_CHUNK_SIZE as f32, noise_settings, Vec3::ZERO);
 
-                let (vertices, indices) = mesh_data_from_perlin(noise_fn, TERRAIN_CHUNK_SIZE + 1, TERRAIN_CHUNK_SIZE + 1, chunk_position);
+                let (vertices, indices) = mesh_data_from_noise(noise_fn, TERRAIN_CHUNK_SIZE + 1, TERRAIN_CHUNK_SIZE + 1, chunk_position);
                 let normals = calculate_normals(&vertices, &indices);
                 let mesh = build_mesh(vertices, indices, normals);
 
@@ -224,7 +190,7 @@ fn generate_terrain(
 }
 
 /// Collects the results from threads spawned in `generate_terrain` and spawns the chunks.
-fn spawn_generated_chunks(
+pub(crate) fn spawn_generated_chunks(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut terrain_res: ResMut<Terrain>,
@@ -235,7 +201,6 @@ fn spawn_generated_chunks(
     for (entity, mut task) in &mut mesh_gen_tasks {
         if let Some((id, chunk_position, mesh)) = future::block_on(future::poll_once(&mut task.0)) {
             let mesh_handle = meshes.add(mesh);
-
 
             // Add the chunk to the world and tag it with the TerrainChunk component
             commands.entity(entity)
@@ -257,7 +222,7 @@ fn spawn_generated_chunks(
     }
 }
 
-fn remove_unused_terrain(
+pub(crate) fn remove_unused_terrain(
     mut commands: Commands,
     mut terrain_res: ResMut<Terrain>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -346,12 +311,12 @@ fn calculate_normals(vertices: &Vec<[f32; 3]>, indices: &Vec<u32>) -> Vec<[f32; 
 }
 
 /// Generates mesh data (vertices, indices) from a noise function
-fn mesh_data_from_perlin<F>(noise_fn: F, mesh_width: u32, mesh_height: u32, offset: Vec2) -> (Vec<[f32; 3]>, Vec<u32>)
+fn mesh_data_from_noise<F>(noise_fn: F, mesh_width: u32, mesh_height: u32, offset: Vec2) -> (Vec<[f32; 3]>, Vec<u32>)
     where F: Fn(f64, f64) -> f64 {
-    let vertex_subdivision = 8;
+    let vertex_subdivision = 200;
 
-    let vertex_count_x = mesh_width / vertex_subdivision + 1;
-    let vertex_count_z = mesh_height / vertex_subdivision + 1;
+    let vertex_count_x = mesh_width / vertex_subdivision + 2;
+    let vertex_count_z = mesh_height / vertex_subdivision + 2;
 
     let mut vertices = Vec::with_capacity((vertex_count_x * vertex_count_z) as usize);
     let mut indices = Vec::with_capacity(((vertex_count_x - 1) * (vertex_count_z - 1) * 6) as usize);
@@ -361,7 +326,7 @@ fn mesh_data_from_perlin<F>(noise_fn: F, mesh_width: u32, mesh_height: u32, offs
         for x in 0..vertex_count_x {
             let vertex_elevation = noise_fn((x * vertex_subdivision) as f64 + offset.x as f64, (z * vertex_subdivision) as f64 + offset.y as f64) as f32;
 
-            let position = [(x * vertex_subdivision) as f32, vertex_elevation, (z * vertex_subdivision) as f32];
+            let position = [(x * vertex_subdivision) as f32, vertex_elevation, (z * vertex_subdivision) as f32 ];
             vertices.push(position);
 
             if x < vertex_count_x - 1 && z < vertex_count_z - 1 {
@@ -391,12 +356,9 @@ struct Fog {
     end: f32,
 }
 
-#[derive(AsBindGroup, Clone, TypeUuid)]
+#[derive(AsBindGroup, Clone, TypeUuid, TypePath)]
 #[uuid = "b62bb455-a72c-4b56-87bb-81e0554e234f"]
-pub struct TerrainMaterial {
-    #[uniform(0)]
-    fog: Fog,
-
+pub(crate) struct TerrainMaterial {
     #[uniform(1)]
     grass_pbr_material: StandardMaterialUniform,
     #[uniform(2)]

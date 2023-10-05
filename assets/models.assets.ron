@@ -1,0 +1,11 @@
+({
+    "models.track.cross_section": File (
+        path: "models/track.glb",
+    ),
+    "models.train.wagon_bogie": File (
+        path: "models/wagon_bogie.glb#Scene0",
+    ),
+    "models.train.gondola": File (
+        path: "models/gondola_wagon.glb#Scene0",
+    ),
+})

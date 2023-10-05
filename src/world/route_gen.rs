@@ -1,14 +1,12 @@
 use std::collections::BTreeMap;
-use crate::{App, Assets, Color, Component, Commands, default, MaterialMeshBundle, MaterialPlugin, Mesh, noise, NoiseSettings, Player, Plugin, Query, Res, ResMut, Transform, Vec2, Vec3, With, Entity, Resource};
+use crate::{Assets, Color, Component, Commands, default, MaterialMeshBundle, Mesh, noise, NoiseSettings, Player, Query, Res, ResMut, Transform, Vec2, Vec3, With, Entity, Resource};
 use crate::lines::{LineMaterial, LineStrip};
 use crate::world::terrain::{RENDER_DISTANCE_CHUNKS, TERRAIN_CHUNK_SIZE};
 
 /// The distance between each route node
-const NODE_LENGTH: f32 = 90.;
+const NODE_LENGTH: f32 = 60.;
 /// The maximum allowed turn angle between each successive nodes in degrees
-const MAX_TURN_ANGLE: i32 = 10;
-
-pub(crate) struct RouteGenerationPlugin;
+const MAX_TURN_ANGLE: i32 = 5;
 
 #[derive(Component)]
 pub(crate) struct RouteNode;
@@ -40,20 +38,8 @@ impl Default for Route {
     }
 }
 
-impl Plugin for RouteGenerationPlugin {
-    fn build(&self, app: &mut App) {
-        app
-            .add_plugin(MaterialPlugin::<LineMaterial>::default())
-            .insert_resource(Route::default())
-
-            .add_startup_system(init_line_points)
-            .add_system(update_polyline_points)
-            .add_system(build_route_path);
-    }
-}
-
 /// Determine and set the first point of the route.
-fn init_line_points(
+pub(crate) fn init_line_points(
     mut route_res: ResMut<Route>,
     noise_settings: Res<NoiseSettings>,
 ) {
@@ -70,7 +56,7 @@ fn init_line_points(
     route_res.points_changed = true;
 }
 
-fn update_polyline_points(
+pub(crate) fn update_polyline_points(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<LineMaterial>>,
@@ -99,7 +85,7 @@ fn update_polyline_points(
 }
 
 /// Builds the track route for the generated chunks.
-fn build_route_path(
+pub(crate) fn build_route_path(
     mut route_res: ResMut<Route>,
 
     player_query: Query<&Transform, With<Player>>,
@@ -132,7 +118,7 @@ fn build_route_path(
 }
 
 /// Calculates the next node in the route path by taking the route with lowest slope
-fn find_next_path_node<F>(noise_fn: F, starting_point: Vec3, starting_absolute_angle_deg: i32, max_angle_deg: i32, angle_step_deg: usize) -> Vec3
+pub(crate) fn find_next_path_node<F>(noise_fn: F, starting_point: Vec3, starting_absolute_angle_deg: i32, max_angle_deg: i32, angle_step_deg: usize) -> Vec3
     where F: Fn(f64, f64) -> f64 {
     let mut result = Vec3::ZERO;
     let mut current_min_slope = 1000.; // arbitrarily large number
@@ -150,7 +136,7 @@ fn find_next_path_node<F>(noise_fn: F, starting_point: Vec3, starting_absolute_a
         let slope = calc_absolute_slope(this_pos.distance(starting_point_2d), starting_point.y, height_here);
         if slope < current_min_slope {
             current_min_slope = slope;
-            result = Vec3::new(this_pos.x, height_here + 1., this_pos.y);
+            result = Vec3::new(this_pos.x, height_here, this_pos.y);
         }
     }
 

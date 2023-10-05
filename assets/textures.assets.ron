@@ -3,6 +3,6 @@
         path: "textures/grass.jpg",
     ),
     "textures.terrain.rock": File (
-        path: "textures/Rock5.png",
+        path: "textures/rock.png",
     ),
 })

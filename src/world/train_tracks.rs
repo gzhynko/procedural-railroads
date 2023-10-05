@@ -1,77 +1,26 @@
 use bevy::gltf::{Gltf, GltfMesh};
 use bevy::prelude::*;
 use bevy::utils::hashbrown::HashMap;
-use bevy_extrude_mesh::bezier::{BezierCurve, OrientedPoint};
+use bevy_extrude_mesh::bezier::{BezierCurve};
 use bevy_extrude_mesh::extrude;
 use bevy_extrude_mesh::extrude::ExtrudeShape;
-use crate::assets::{AssetLoadingState, ModelAssets};
+use crate::assets::{ModelAssets};
 use crate::{noise, NoiseSettings};
 use crate::world::route_gen::Route;
 use crate::world::terrain::TERRAIN_CHUNK_SIZE;
 
-pub(crate) struct TrackPlacementPlugin;
+const NUM_SUBDIVISIONS: u32 = 20;
+const TRACK_ELEVATION: f32 = 1.;
 
 #[derive(Clone)]
 struct TrackSegment {
     id: u64,
-    points: Vec<OrientedPoint>,
+    curve: BezierCurve,
     world_translation: Vec3,
 }
 
-impl TrackSegment {
-    fn get_closest_point_at_t(&self, t: f32) -> (usize, &OrientedPoint) {
-        let mut closest_point: Option<&OrientedPoint> = None;
-        let mut closest_index = 0;
-        let mut smallest_diff = 1.;
-        for (i, point) in self.points.iter().enumerate() {
-            let diff = (t - point.t).abs();
-            if diff < smallest_diff {
-                closest_index = i;
-                closest_point = Some(point);
-                smallest_diff = diff;
-            }
-        }
-
-        (closest_index, closest_point.unwrap())
-    }
-
-    pub fn get_interpolated_position_at_t(&self, t: f32) -> (Vec3, Quat) {
-        let (closest_index, closest_point) = self.get_closest_point_at_t(t);
-
-        // Interpolate the position and rotation
-        if closest_point.t > t {
-            let prev = &self.points[closest_index - 1];
-            let lerp_factor = t * (self.points.len() as f32 - 1.) - (closest_index as f32 - 1.);
-            let position = Vec3::lerp(prev.position, closest_point.position, lerp_factor);
-            let rotation = Quat::lerp(prev.rotation, closest_point.rotation, lerp_factor);
-            (position, rotation)
-        } else {
-            let next = &self.points[closest_index + 1];
-            let lerp_factor = t * (self.points.len() as f32 - 1.) - closest_index as f32;
-            let position = Vec3::lerp(closest_point.position, next.position, lerp_factor);
-            let rotation = Quat::lerp(closest_point.rotation, next.rotation, lerp_factor);
-            (position, rotation)
-        }
-    }
-
-    pub fn get_slope_angle_at_t(&self, t: f32) -> f32 {
-        let (closest_index, closest_point) = self.get_closest_point_at_t(t);
-
-        // Interpolate the position and rotation
-        if closest_point.t > t {
-            let prev = &self.points[closest_index - 1];
-            let sine = (closest_point.position.y - prev.position.y) / Vec3::distance(prev.position, closest_point.position);
-            sine.asin()
-        } else {
-            let next = &self.points[closest_index + 1];
-            let sine = (next.position.y - closest_point.position.y) / Vec3::distance(closest_point.position, next.position);
-            sine.asin()
-        }
-    }
-}
-
 #[derive(Resource, Default)]
-struct PlacementData {
+pub(crate) struct PlacementData {
     track_shape: Option<ExtrudeShape>,
     track_material: Option<Handle<StandardMaterial>>,
 
@@ -80,39 +29,79 @@ struct PlacementData {
     last_used_node_id: u64,
 }
 
+struct SampledTrackSegment {
+    curve: BezierCurve,
+    world_translation: Vec3,
+}
+
 #[derive(Component, Default)]
 pub(crate) struct Track {
     /// Used to sample the t value (used by train bogies).
-    segments: HashMap<u32, TrackSegment>,
+    segments: HashMap<u32, SampledTrackSegment>,
+    last_used_segment_id: u64,
 }
 
 impl Track {
-    fn get_segment_at_t(&self, t: f32) -> Option<&TrackSegment> {
+    fn get_segment_at_t(&self, t: f32) -> Option<&SampledTrackSegment> {
         assert!(t >= 0., "t wasn't a positive number (shouldn't actually happen)");
         let lower_bound = t.floor() as u32;
 
         self.segments.get(&lower_bound)
     }
 
-    pub fn get_interpolated_position_at_t(&self, t: f32) -> Option<(Vec3, Quat)> {
+    pub fn get_interpolated_position_at_t<F: Fn(f64, f64) -> f64>(&self, t: f32, height_fn: &F) -> Option<(Vec3, Quat)> {
         let segment = self.get_segment_at_t(t);
-        if segment.is_some() {
-            let segment = segment.unwrap();
-            let lower_bound = t.floor() as u32;
-            let (mut position, rotation) = segment.get_interpolated_position_at_t(t - lower_bound as f32).clone();
-            position += segment.world_translation;
-            Some((position, rotation))
+        if let Some(segment) = segment {
+            let lower_bound = t.floor();
+            let local_t = t - lower_bound;
+
+            let actual_t = segment.curve.map(local_t);
+            let mut point = segment.curve.get_oriented_point(actual_t);
+            point.position += segment.world_translation;
+            point.position.y = height_fn(point.position.x as f64, point.position.z as f64) as f32;
+            point.position.y += TRACK_ELEVATION;
+
+            Some((point.position, point.rotation))
         } else {
             None
         }
     }
 
-    pub fn get_slope_angle_at_t(&self, t: f32) -> Option<f32> {
+    pub fn get_slope_angle_at_t<F: Fn(f64, f64) -> f64>(&self, t: f32, height_fn: &F) -> Option<f32> {
         let segment = self.get_segment_at_t(t);
-        let lower_bound = t.floor() as u32;
-        if segment.is_some() {
-            let segment = segment.unwrap();
-            Some(segment.get_slope_angle_at_t(t - lower_bound as f32))
+
+        if let Some(segment) = segment {
+            let lower_bound = t.floor();
+            let local_t = t - lower_bound;
+
+            let actual_t = segment.curve.map(local_t);
+            let mut this_pos = segment.curve.get_oriented_point(actual_t).position;
+            this_pos += segment.world_translation;
+            this_pos.y = height_fn(this_pos.x as f64, this_pos.z as f64) as f32;
+
+            let mut new_pos;
+            let step = 1. / NUM_SUBDIVISIONS as f32;
+            let new_t = t + step;
+            if new_t.floor() == lower_bound {
+                let new_local_t = new_t - new_t.floor();
+                let new_actual_t = segment.curve.map(new_local_t);
+                new_pos = segment.curve.get_oriented_point(new_actual_t).position;
+                new_pos += segment.world_translation;
+            } else {
+                let new_segment = self.get_segment_at_t(new_t);
+                if let Some(new_segment) = new_segment {
+                    let new_local_t = new_t - new_t.floor();
+                    let new_actual_t = new_segment.curve.map(new_local_t);
+                    new_pos = new_segment.curve.get_oriented_point(new_actual_t).position;
+                    new_pos += new_segment.world_translation;
+                } else {
+                    return None;
+                }
+            }
+            new_pos.y = height_fn(new_pos.x as f64, new_pos.z as f64) as f32;
+
+            let sine = (new_pos.y - this_pos.y) / Vec3::distance(this_pos, new_pos);
+            Some(sine.asin())
         } else {
             None
         }
@@ -129,37 +118,14 @@ impl PlacementData {
     }
 }
 
-impl Plugin for TrackPlacementPlugin {
-    fn build(&self, app: &mut App) {
-        app
-            .insert_resource(PlacementData::default())
-
-            // startup
-            .add_system_set(
-                SystemSet::on_enter(AssetLoadingState::AssetsLoaded)
-                    .with_system(spawn_track_entity)
-                    .with_system(setup_track_data)
-                    .with_system(setup_track_material)
-            )
-
-            // update
-            .add_system_set(
-                SystemSet::on_update(AssetLoadingState::AssetsLoaded)
-                    .with_system(update_placement_data)
-                    .with_system(update_track_entity)
-                    .with_system(place_tracks)
-            );
-    }
-}
-
-fn spawn_track_entity(
+pub(crate) fn spawn_track_entity(
     mut commands: Commands,
 ) {
     commands.spawn_empty()
         .insert(Track::default());
 }
 
-fn setup_track_data(
+pub(crate) fn setup_track_data(
     mut data_res: ResMut<PlacementData>,
     model_assets: Res<ModelAssets>,
 
@@ -168,14 +134,14 @@ fn setup_track_data(
     gltf_mesh_assets: Res<Assets<GltfMesh>>,
 ) {
     if let Some(gltf) = gltf_assets.get(&model_assets.track_cross_section) {
-        let track_gltf_mesh = gltf_mesh_assets.get(&gltf.named_meshes["TrackCrossSection"]).unwrap();
+        let track_gltf_mesh = gltf_mesh_assets.get(&gltf.meshes[0]).unwrap();
         let track_mesh = meshes.get(&track_gltf_mesh.primitives[0].mesh).unwrap();
         let extrude_shape = ExtrudeShape::from_mesh(track_mesh);
         data_res.track_shape = Some(extrude_shape);
     }
 }
 
-fn setup_track_material(
+pub(crate) fn setup_track_material(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut data_res: ResMut<PlacementData>,
 ) {
@@ -187,25 +153,45 @@ fn setup_track_material(
     data_res.track_material = Some(handle);
 }
 
-fn update_track_entity(
+pub(crate) fn update_track_entity(
     mut track_query: Query<&mut Track>,
     placement_data_res: Res<PlacementData>,
+    noise_settings: Res<NoiseSettings>,
 ) {
+    if placement_data_res.segments.is_empty() {
+        return;
+    }
+
     // TODO: add support for multiple tracks
     let mut track = track_query.single_mut();
 
-    // TODO: (IMPORTANT) optimize this
-    track.segments = HashMap::new();
-    for segment in &placement_data_res.segments {
-        track.segments.insert(segment.id as u32, segment.clone());
+    if placement_data_res.current_segment_id() <= track.last_used_segment_id {
+        return;
     }
+
+    let segment = placement_data_res.segments.iter().find(|seg| seg.id == track.last_used_segment_id + 1);
+    if segment.is_none() {
+        println!("update_track_entity: no segment with id of track.last_used_segment_id + 1");
+        return;
+    }
+    let mut cloned_segment = segment.unwrap().clone();
+    let world_pos = cloned_segment.world_translation;
+    let height_fn = noise::get_heightmap_function(TERRAIN_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::new(world_pos.x, -world_pos.y + 0.3, world_pos.z));
+
+    cloned_segment.curve.calculate_arc_lengths_with_custom_height_function(&height_fn);
+
+    let sampled_segment = SampledTrackSegment {
+        curve: cloned_segment.curve,
+        world_translation: cloned_segment.world_translation,
+    };
+    track.segments.insert(cloned_segment.id as u32, sampled_segment);
+    track.last_used_segment_id += 1;
 }
 
 // Updates the placement data one TrackSegment per run.
-fn update_placement_data(
+pub(crate) fn update_placement_data(
     mut data_res: ResMut<PlacementData>,
     route_res: Res<Route>,
-    noise_settings: Res<NoiseSettings>,
 ) {
     let id_to_add = if data_res.last_used_node_id == 0 { 2 } else { data_res.last_used_node_id + 1 };
     if route_res.get_last_id() <= 2 || route_res.get_last_id() == data_res.last_used_node_id || route_res.get_next_point(id_to_add).is_none() {
@@ -219,29 +205,31 @@ fn update_placement_data(
     let previous_node = route_res.points.get(&(id_to_add - 2)).unwrap();
 
     // Calculate the bezier points (the vertices will be positioned relative to zero)
-    let bezier_start = Vec3::ZERO;
-    let bezier_end = new_node.clone() - last_node.clone();
-    let (bezier_control1, bezier_control2) = find_control_points(last_node.clone(), new_node.clone(), Some(previous_node.clone()), Some(next_node.clone()), last_node.clone());
-    let bezier_curve = BezierCurve::new(vec![bezier_start, bezier_control1, bezier_control2, bezier_end]);
+    let mut bezier_start = Vec3::ZERO;
+    let mut bezier_end = new_node.clone() - last_node.clone();
+    let (mut bezier_control1, mut bezier_control2) = find_control_points(last_node.clone(), new_node.clone(), Some(previous_node.clone()), Some(next_node.clone()), last_node.clone());
 
-    // Generate the path using the noise function as the height function
-    let height_fn = noise::get_heightmap_function(TERRAIN_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::new(last_node.x, -last_node.y + 0.3, last_node.z));
-    let path = bezier_curve.generate_path_with_custom_height_function(20, height_fn);
+    bezier_start.y = 0.;
+    bezier_end.y = 0.;
+    bezier_control1.y = 0.;
+    bezier_control2.y = 0.;
+    let bezier_curve = BezierCurve::new(vec![bezier_start, bezier_control1, bezier_control2, bezier_end], None);
 
     // Push the new segment to the resource
     let segment = TrackSegment {
         id: data_res.current_segment_id() + 1,
-        points: path,
+        curve: bezier_curve,
         world_translation: last_node.clone(),
     };
     data_res.segments.push(segment);
     data_res.last_used_node_id = id_to_add;
 }
 
-fn place_tracks(
+pub(crate) fn place_tracks(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut placement_data: ResMut<PlacementData>,
+    noise_settings: Res<NoiseSettings>,
 ) {
     if placement_data.track_shape.is_none() || placement_data.track_material.is_none() {
         return;
@@ -253,11 +241,16 @@ fn place_tracks(
     let id_to_place = placement_data.last_placed_segment_id + 1;
 
     let segment = placement_data.segments.iter().find(|seg| seg.id == id_to_place).unwrap();
-    let points = &segment.points;
 
-    let translation = segment.world_translation;
+    // Generate the path using the noise function as the height function
+    let world_pos = segment.world_translation;
+    let height_fn = noise::get_heightmap_function(TERRAIN_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::new(world_pos.x, -world_pos.y, world_pos.z));
+    let path = segment.curve.generate_path_with_custom_height_function(NUM_SUBDIVISIONS, height_fn);
 
-    let mesh = extrude::extrude(placement_data.track_shape.as_ref().unwrap(), points);
+    let mut translation = segment.world_translation;
+    translation.y += TRACK_ELEVATION;
+
+    let mesh = extrude::extrude(placement_data.track_shape.as_ref().unwrap(), &path);
     let handle = meshes.add(mesh);
     commands.spawn(PbrBundle {
         mesh: handle,

@@ -2,10 +2,10 @@ use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::render::mesh::MeshVertexBufferLayout;
 use bevy::render::render_resource::{PolygonMode, RenderPipelineDescriptor, SpecializedMeshPipelineError};
 use crate::{Color, Material, Mesh, PrimitiveTopology, Vec3};
-use bevy::reflect::{TypeUuid};
+use bevy::reflect::{TypePath, TypeUuid};
 use bevy::render::render_resource::{ShaderRef, AsBindGroup};
 
-#[derive(Default, AsBindGroup, TypeUuid, Debug, Clone)]
+#[derive(Default, AsBindGroup, TypeUuid, TypePath, Debug, Clone)]
 #[uuid = "050ce6ac-080a-4d8c-b6b5-b5bab7560d8f"]
 pub struct LineMaterial {
     #[uniform(0)]
