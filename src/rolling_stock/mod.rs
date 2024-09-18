@@ -24,10 +24,11 @@ enum WagonPhysicsSet {
 impl Plugin for RollingStockPlugin {
     fn build(&self, app: &mut App) {
         app
-            .configure_set(Update, WagonPhysicsSet::ApplyForces.after(WagonPhysicsSet::SetForces))
+            .configure_sets(Update, WagonPhysicsSet::ApplyForces.after(WagonPhysicsSet::SetForces))
 
             .add_systems(OnEnter(AssetLoadingState::AssetsLoaded), spawn_wagon)
 
+            // Step 1 - set forces
             .add_systems(Update,
                          (
                              update_bogie_current_slope_angle,
@@ -38,6 +39,7 @@ impl Plugin for RollingStockPlugin {
                              .in_set(WagonPhysicsSet::SetForces)
                              .run_if(in_state(AssetLoadingState::AssetsLoaded))
             )
+            // Step 2 - apply forces
             .add_systems(FixedUpdate,
                          (
                              apply_bogie_forces,
@@ -45,12 +47,11 @@ impl Plugin for RollingStockPlugin {
                              sync_bogie_velocities,
                              constrain_attached_bogies
                          )
-                             .chain()
                              .in_set(WagonPhysicsSet::ApplyForces)
                              .run_if(in_state(AssetLoadingState::AssetsLoaded))
             )
 
-            .add_systems(Update, (update_bogie_transforms, sync_wagons_with_bogies).chain())
+            .add_systems(Update, (update_bogie_transforms, sync_wagons_with_bogies))
             .add_systems(Update, tracked_wagon_status_ui);
     }
 }

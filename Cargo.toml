@@ -10,12 +10,12 @@ resolver = "2"
 opt-level = 3
 
 [dependencies]
-bevy = { version = "0.11.3", features = ["dynamic_linking", "jpeg"] }
-bevy_flycam = { git = "https://github.com/sburris0/bevy_flycam.git", branch="bevy_0.11" }
-bevy_atmosphere = { version = "0.7.0", features = ["nishita"] }
-noisy_bevy = "0.4.0"
-futures-lite = "1.12.0"
-bevy_egui = "0.21.0"
-bevy_mod_picking = "0.15.0"
-bevy_extrude_mesh = { path = "../bevy-extrude-mesh" }
-bevy_asset_loader = { version = "0.17.0", features = ["standard_dynamic_assets"] }
+bevy = { version = "0.14.2", features = ["dynamic_linking", "jpeg"] }
+bevy_flycam = "0.14.1"
+bevy_atmosphere = { version = "0.10.0", features = ["nishita"] }
+noisy_bevy = "0.7.0"
+futures-lite = "2.3.0"
+bevy_egui = "0.29.0"
+bevy_mod_picking = "0.20.1"
+bevy_extrude_mesh = { git = "https://github.com/gzhynko/bevy-extrude-mesh.git" }
+bevy_asset_loader = { version = "0.21.0", features = ["standard_dynamic_assets"] }

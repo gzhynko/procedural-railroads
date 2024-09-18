@@ -7,14 +7,14 @@ use bevy_extrude_mesh::extrude::ExtrudeShape;
 use crate::assets::{ModelAssets};
 use crate::{noise, NoiseSettings};
 use crate::world::route_gen::Route;
-use crate::world::terrain::TERRAIN_CHUNK_SIZE;
+use crate::world::terrain::FAR_GRID_CHUNK_SIZE;
 
 const NUM_SUBDIVISIONS: u32 = 20;
 const TRACK_ELEVATION: f32 = 1.;
 
 #[derive(Clone)]
 struct TrackSegment {
-    id: u64,
+    id: usize,
     curve: BezierCurve,
     world_translation: Vec3,
 }
@@ -25,8 +25,8 @@ pub(crate) struct PlacementData {
     track_material: Option<Handle<StandardMaterial>>,
 
     segments: Vec<TrackSegment>,
-    last_placed_segment_id: u64,
-    last_used_node_id: u64,
+    last_placed_segment_id: usize,
+    last_used_node_id: usize,
 }
 
 struct SampledTrackSegment {
@@ -38,7 +38,7 @@ struct SampledTrackSegment {
 pub(crate) struct Track {
     /// Used to sample the t value (used by train bogies).
     segments: HashMap<u32, SampledTrackSegment>,
-    last_used_segment_id: u64,
+    last_used_segment_id: usize,
 }
 
 impl Track {
@@ -109,7 +109,7 @@ impl Track {
 }
 
 impl PlacementData {
-    fn current_segment_id(&self) -> u64 {
+    fn current_segment_id(&self) -> usize {
         if self.segments.is_empty() {
             0
         } else {
@@ -176,7 +176,7 @@ pub(crate) fn update_track_entity(
     }
     let mut cloned_segment = segment.unwrap().clone();
     let world_pos = cloned_segment.world_translation;
-    let height_fn = noise::get_heightmap_function(TERRAIN_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::new(world_pos.x, -world_pos.y + 0.3, world_pos.z));
+    let height_fn = noise::get_heightmap_function(FAR_GRID_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::new(world_pos.x, -world_pos.y + 0.3, world_pos.z));
 
     cloned_segment.curve.calculate_arc_lengths_with_custom_height_function(&height_fn);
 
@@ -194,15 +194,15 @@ pub(crate) fn update_placement_data(
     route_res: Res<Route>,
 ) {
     let id_to_add = if data_res.last_used_node_id == 0 { 2 } else { data_res.last_used_node_id + 1 };
-    if route_res.get_last_id() <= 2 || route_res.get_last_id() == data_res.last_used_node_id || route_res.get_next_point(id_to_add).is_none() {
+    if route_res.get_last_id() <= 2 || route_res.get_last_id() == data_res.last_used_node_id || route_res.get_point(id_to_add + 1).is_none() {
         return;
     }
 
     // We need at least four points to get the direction stuff right.
-    let next_node = route_res.get_next_point(id_to_add).unwrap();
-    let new_node = route_res.points.get(&id_to_add).unwrap();
-    let last_node = route_res.points.get(&(id_to_add - 1)).unwrap();
-    let previous_node = route_res.points.get(&(id_to_add - 2)).unwrap();
+    let next_node = route_res.get_point(id_to_add + 1).unwrap();
+    let new_node = route_res.get_point(id_to_add).unwrap();
+    let last_node = route_res.get_point(id_to_add - 1).unwrap();
+    let previous_node = route_res.get_point(id_to_add - 2).unwrap();
 
     // Calculate the bezier points (the vertices will be positioned relative to zero)
     let mut bezier_start = Vec3::ZERO;
@@ -244,7 +244,7 @@ pub(crate) fn place_tracks(
 
     // Generate the path using the noise function as the height function
     let world_pos = segment.world_translation;
-    let height_fn = noise::get_heightmap_function(TERRAIN_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::new(world_pos.x, -world_pos.y, world_pos.z));
+    let height_fn = noise::get_heightmap_function(FAR_GRID_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::new(world_pos.x, -world_pos.y, world_pos.z));
     let path = segment.curve.generate_path_with_custom_height_function(NUM_SUBDIVISIONS, height_fn);
 
     let mut translation = segment.world_translation;

@@ -7,22 +7,22 @@ pub(crate) struct AssetsPlugin;
 impl Plugin for AssetsPlugin {
     fn build(&self, app: &mut App) {
         app
-            .add_state::<AssetLoadingState>()
+            .init_state::<AssetLoadingState>()
             .add_loading_state(
-            LoadingState::new(AssetLoadingState::AssetsLoading)
-                .continue_to_state(AssetLoadingState::AssetsLoaded)
-            )
-
-            .add_dynamic_collection_to_loading_state::<_, StandardDynamicAssetCollection>(AssetLoadingState::AssetsLoading, "textures.assets.ron")
-            .add_dynamic_collection_to_loading_state::<_, StandardDynamicAssetCollection>(AssetLoadingState::AssetsLoading, "models.assets.ron")
-            .add_collection_to_loading_state::<_, TextureAssets>(AssetLoadingState::AssetsLoading)
-            .add_collection_to_loading_state::<_, ModelAssets>(AssetLoadingState::AssetsLoading);
-
+                LoadingState::new(AssetLoadingState::AssetsLoading)
+                    .continue_to_state(AssetLoadingState::AssetsLoaded)
+                    .with_dynamic_assets_file::<StandardDynamicAssetCollection>("textures.assets.ron")
+                    .with_dynamic_assets_file::<StandardDynamicAssetCollection>("models.assets.ron")
+                    .load_collection::<TextureAssets>()
+                    .load_collection::<ModelAssets>()
+            );
     }
 }
 
 #[derive(AssetCollection, Resource)]
 pub(crate) struct TextureAssets {
+    #[asset(key = "textures.terrain.temp")]
+    pub(crate) terrain_temp: Handle<Image>,
     #[asset(key = "textures.terrain.grass")]
     pub(crate) terrain_grass: Handle<Image>,
     #[asset(key = "textures.terrain.rock")]

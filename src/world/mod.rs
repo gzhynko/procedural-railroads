@@ -26,7 +26,7 @@ impl Plugin for WorldPlugin {
 
             // startup systems
             .add_systems(Startup, init_line_points)
-            .add_systems(OnEnter(AssetLoadingState::AssetsLoaded), (setup_terrain, setup_water))
+            .add_systems(OnEnter(AssetLoadingState::AssetsLoaded),(setup_terrain, setup_water))
             .add_systems(OnEnter(AssetLoadingState::AssetsLoaded),
                          (spawn_track_entity, setup_track_data, setup_track_material))
 
@@ -34,7 +34,7 @@ impl Plugin for WorldPlugin {
             .add_systems(Update, update_polyline_points)
             .add_systems(Update, build_route_path)
             .add_systems(Update,
-                         (spawn_generated_chunks, generate_terrain, remove_unused_terrain, update_water_plane, configure_terrain_images)
+                         (spawn_generated_chunks, generate_far_terrain, generate_near_terrain, remove_unused_terrain, update_water_plane, configure_terrain_images)
                              .run_if(in_state(AssetLoadingState::AssetsLoaded)))
             .add_systems(Update,
                          (update_placement_data, update_track_entity, place_tracks)

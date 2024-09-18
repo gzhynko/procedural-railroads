@@ -1,4 +1,7 @@
 ({
+    "textures.terrain.temp": File (
+        path: "textures/temp_terrain_tex.png",
+    ),
     "textures.terrain.grass": File (
         path: "textures/grass.jpg",
     ),

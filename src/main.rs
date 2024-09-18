@@ -5,6 +5,7 @@ mod rolling_stock;
 mod world;
 
 use std::ops::RangeInclusive;
+use bevy::color::palettes::basic::WHITE;
 use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::prelude::*;
 use bevy_atmosphere::prelude::*;
@@ -46,7 +47,6 @@ fn main() {
 
         .add_plugins((AssetsPlugin, WorldPlugin, RollingStockPlugin))
 
-        .insert_resource(FixedTime::new_from_secs(PHYSICS_TIMESTEP))
         .insert_resource(MovementSettings {
             sensitivity: 0.00012, // default: 0.00012
             speed: 100.0, // default: 12.0
@@ -54,9 +54,9 @@ fn main() {
         .insert_resource(NoiseSettings::default())
         .insert_resource(WireframeConfig::default())
         .insert_resource(AtmosphereModel::new(Gradient {
-            sky: Color::WHITE,
-            horizon: Color::WHITE,
-            ground: Color::WHITE,
+            sky: LinearRgba::from(WHITE),
+            horizon: LinearRgba::from(WHITE),
+            ground: LinearRgba::from(WHITE),
         }))
 
         .insert_resource(ControlsUiState::default())
@@ -108,7 +108,7 @@ fn setup(
             ..default()
         },
         FogSettings {
-            color: Color::rgba(1.0, 1.0, 1.0, 1.0),
+            color: Color::linear_rgba(1.0, 1.0, 1.0, 1.0),
             falloff: FogFalloff::Linear {
                 start: 4500.0,
                 end: 5000.0,
@@ -186,6 +186,6 @@ fn terrain_gen_ui(
         });
     });
     if any_changed {
-        terrain_res.loaded_chunks_pos.clear();
+        terrain_res.loaded_chunks.clear();
     }
 }

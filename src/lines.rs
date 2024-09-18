@@ -1,15 +1,17 @@
+use bevy::asset::Asset;
+use bevy::color::LinearRgba;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
-use bevy::render::mesh::MeshVertexBufferLayout;
+use bevy::render::mesh::{MeshVertexBufferLayoutRef};
 use bevy::render::render_resource::{PolygonMode, RenderPipelineDescriptor, SpecializedMeshPipelineError};
-use crate::{Color, Material, Mesh, PrimitiveTopology, Vec3};
-use bevy::reflect::{TypePath, TypeUuid};
+use crate::{Material, Mesh, PrimitiveTopology, Vec3};
+use bevy::reflect::{TypePath};
+use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::{ShaderRef, AsBindGroup};
 
-#[derive(Default, AsBindGroup, TypeUuid, TypePath, Debug, Clone)]
-#[uuid = "050ce6ac-080a-4d8c-b6b5-b5bab7560d8f"]
+#[derive(Asset, AsBindGroup, TypePath, Debug, Clone)]
 pub struct LineMaterial {
     #[uniform(0)]
-    pub(crate) color: Color,
+    pub(crate) color: LinearRgba,
 }
 
 impl Material for LineMaterial {
@@ -20,7 +22,7 @@ impl Material for LineMaterial {
     fn specialize(
         _pipeline: &MaterialPipeline<Self>,
         descriptor: &mut RenderPipelineDescriptor,
-        _layout: &MeshVertexBufferLayout,
+        _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         // This is the important part to tell bevy to render this material as a line between vertices
@@ -47,7 +49,7 @@ impl From<LineStrip> for Mesh {
 
         // This tells wgpu that the positions are a list of points
         // where a line will be drawn between each consecutive point
-        let mut mesh = Mesh::new(PrimitiveTopology::LineStrip);
+        let mut mesh = Mesh::new(PrimitiveTopology::LineStrip, RenderAssetUsages::default());
 
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
         // Normals are currently required by bevy, but they aren't used by the [`LineMaterial`]
