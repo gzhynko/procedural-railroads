@@ -3,7 +3,9 @@ use crate::assets::AssetLoadingState;
 use crate::lines::LineMaterial;
 
 use crate::world::route_gen::*;
-use crate::world::terrain::*;
+use crate::world::terrain::{configure_terrain_images, invalidate_unused_terrain, remove_invalidated_chunks, setup_terrain, setup_water, spawn_generated_chunks, update_water_plane};
+use crate::world::terrain::terrain_gen::{generate_far_terrain, generate_near_terrain};
+use crate::world::terrain::types::{Terrain, TerrainMaterial};
 use crate::world::train_tracks::*;
 
 pub mod terrain;
@@ -34,7 +36,7 @@ impl Plugin for WorldPlugin {
             .add_systems(Update, update_polyline_points)
             .add_systems(Update, build_route_path)
             .add_systems(Update,
-                         (spawn_generated_chunks, generate_far_terrain, generate_near_terrain, remove_unused_terrain, update_water_plane, configure_terrain_images)
+                         (spawn_generated_chunks, generate_far_terrain, generate_near_terrain, invalidate_unused_terrain, remove_invalidated_chunks, update_water_plane, configure_terrain_images)
                              .run_if(in_state(AssetLoadingState::AssetsLoaded)))
             .add_systems(Update,
                          (update_placement_data, update_track_entity, place_tracks)

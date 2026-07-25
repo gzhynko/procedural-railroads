@@ -7,7 +7,7 @@ use bevy_extrude_mesh::extrude::ExtrudeShape;
 use crate::assets::{ModelAssets};
 use crate::{noise, NoiseSettings};
 use crate::world::route_gen::Route;
-use crate::world::terrain::FAR_GRID_CHUNK_SIZE;
+use crate::world::terrain::CHUNK_SIZE;
 
 const NUM_SUBDIVISIONS: u32 = 20;
 const TRACK_ELEVATION: f32 = 1.;
@@ -49,7 +49,7 @@ impl Track {
         self.segments.get(&lower_bound)
     }
 
-    pub fn get_interpolated_position_at_t<F: Fn(f64, f64) -> f64>(&self, t: f32, height_fn: &F) -> Option<(Vec3, Quat)> {
+    pub fn get_interpolated_position_at_t<F: Fn(f32, f32) -> f32>(&self, t: f32, height_fn: &F) -> Option<(Vec3, Quat)> {
         let segment = self.get_segment_at_t(t);
         if let Some(segment) = segment {
             let lower_bound = t.floor();
@@ -58,7 +58,7 @@ impl Track {
             let actual_t = segment.curve.map(local_t);
             let mut point = segment.curve.get_oriented_point(actual_t);
             point.position += segment.world_translation;
-            point.position.y = height_fn(point.position.x as f64, point.position.z as f64) as f32;
+            point.position.y = height_fn(point.position.x, point.position.z);
             point.position.y += TRACK_ELEVATION;
 
             Some((point.position, point.rotation))
@@ -67,7 +67,7 @@ impl Track {
         }
     }
 
-    pub fn get_slope_angle_at_t<F: Fn(f64, f64) -> f64>(&self, t: f32, height_fn: &F) -> Option<f32> {
+    pub fn get_slope_angle_at_t<F: Fn(f32, f32) -> f32>(&self, t: f32, height_fn: &F) -> Option<f32> {
         let segment = self.get_segment_at_t(t);
 
         if let Some(segment) = segment {
@@ -77,7 +77,7 @@ impl Track {
             let actual_t = segment.curve.map(local_t);
             let mut this_pos = segment.curve.get_oriented_point(actual_t).position;
             this_pos += segment.world_translation;
-            this_pos.y = height_fn(this_pos.x as f64, this_pos.z as f64) as f32;
+            this_pos.y = height_fn(this_pos.x, this_pos.z);
 
             let mut new_pos;
             let step = 1. / NUM_SUBDIVISIONS as f32;
@@ -98,7 +98,7 @@ impl Track {
                     return None;
                 }
             }
-            new_pos.y = height_fn(new_pos.x as f64, new_pos.z as f64) as f32;
+            new_pos.y = height_fn(new_pos.x, new_pos.z);
 
             let sine = (new_pos.y - this_pos.y) / Vec3::distance(this_pos, new_pos);
             Some(sine.asin())
@@ -176,7 +176,7 @@ pub(crate) fn update_track_entity(
     }
     let mut cloned_segment = segment.unwrap().clone();
     let world_pos = cloned_segment.world_translation;
-    let height_fn = noise::get_heightmap_function(FAR_GRID_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::new(world_pos.x, -world_pos.y + 0.3, world_pos.z));
+    let height_fn = noise::get_heightmap_function(CHUNK_SIZE as f32, noise_settings.clone(), Vec3::new(world_pos.x, -world_pos.y + 0.3, world_pos.z));
 
     cloned_segment.curve.calculate_arc_lengths_with_custom_height_function(&height_fn);
 
@@ -244,7 +244,7 @@ pub(crate) fn place_tracks(
 
     // Generate the path using the noise function as the height function
     let world_pos = segment.world_translation;
-    let height_fn = noise::get_heightmap_function(FAR_GRID_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::new(world_pos.x, -world_pos.y, world_pos.z));
+    let height_fn = noise::get_heightmap_function(CHUNK_SIZE as f32, noise_settings.clone(), Vec3::new(world_pos.x, -world_pos.y, world_pos.z));
     let path = segment.curve.generate_path_with_custom_height_function(NUM_SUBDIVISIONS, height_fn);
 
     let mut translation = segment.world_translation;

@@ -1,8 +1,8 @@
 use bevy::color::palettes::css::RED;
 use crate::{Assets, Component, Commands, default, MaterialMeshBundle, Mesh, noise, NoiseSettings, Player, Query, Res, ResMut, Transform, Vec2, Vec3, With, Entity, Resource};
 use crate::lines::{LineMaterial, LineStrip};
-use crate::world::terrain;
-use crate::world::terrain::{FAR_GRID_CHUNK_SIZE, is_within_far_render_distance};
+use crate::world::terrain::{is_within_far_render_distance, CHUNK_SIZE};
+use crate::world::terrain::terrain_gen::get_far_chunk_position;
 
 /// The distance between each route node
 const NODE_LENGTH: f32 = 50.;
@@ -49,9 +49,9 @@ pub(crate) fn init_line_points(
     mut route_res: ResMut<Route>,
     noise_settings: Res<NoiseSettings>,
 ) {
-    let noise_fn = noise::get_heightmap_function(FAR_GRID_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::ZERO);
+    let noise_fn = noise::get_heightmap_function(CHUNK_SIZE as f32, noise_settings.clone(), Vec3::ZERO);
     let starting_point_2d = Vec2::new(0., 0.);
-    let starting_height = noise_fn(starting_point_2d.x as f64, starting_point_2d.y as f64) as f32;
+    let starting_height = noise_fn(starting_point_2d.x, starting_point_2d.y);
     let starting_point = Vec3::new(starting_point_2d.x, starting_height + 1., starting_point_2d.y);
 
     let next_point = find_next_path_node(noise_fn, starting_point, 0, 180, 5);
@@ -97,13 +97,13 @@ pub(crate) fn build_route_path(
     player_query: Query<&Transform, With<Player>>,
     noise_settings: Res<NoiseSettings>,
 ) {
-    let noise_fn = noise::get_heightmap_function(FAR_GRID_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::ZERO);
+    let noise_fn = noise::get_heightmap_function(CHUNK_SIZE as f32, noise_settings.clone(), Vec3::ZERO);
     let current_node_id = route_res.id_counter;
 
     let player_transform = player_query.single();
     let player_world_position = Vec2::new(player_transform.translation.x, player_transform.translation.z);
 
-    let player_chunk_pos = terrain::get_far_chunk_position(player_world_position);
+    let player_chunk_pos = get_far_chunk_position(player_world_position);
     let last_route_point = route_res.get_point(current_node_id - 1).unwrap().clone();
     // Do not proceed if outside of render distance
     if !is_within_far_render_distance(&Vec2::new(last_route_point.x, last_route_point.z), &player_chunk_pos) {
@@ -123,7 +123,7 @@ pub(crate) fn build_route_path(
 
 /// Calculates the next node in the route path by taking the route with lowest slope
 pub(crate) fn find_next_path_node<F>(noise_fn: F, starting_point: Vec3, starting_absolute_angle_deg: i32, max_angle_deg: i32, angle_step_deg: usize) -> Vec3
-    where F: Fn(f64, f64) -> f64 {
+    where F: Fn(f32, f32) -> f32 {
     let mut result = Vec3::ZERO;
     let mut current_min_slope = 1000.; // arbitrarily large number
     let starting_point_2d = Vec2::new(starting_point.x, starting_point.z);
@@ -133,7 +133,7 @@ pub(crate) fn find_next_path_node<F>(noise_fn: F, starting_point: Vec3, starting
         let y = NODE_LENGTH * angle_rad.sin();
         let this_pos = Vec2::new(x, y) + starting_point_2d;
 
-        let height_here = noise_fn(this_pos.x as f64, this_pos.y as f64) as f32;
+        let height_here = noise_fn(this_pos.x, this_pos.y);
         //if height_here <= WATER_LEVEL {
         //    continue;
         //}

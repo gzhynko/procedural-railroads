@@ -5,14 +5,12 @@ mod rolling_stock;
 mod world;
 
 use std::ops::RangeInclusive;
-use bevy::color::palettes::basic::WHITE;
 use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::prelude::*;
 use bevy_atmosphere::prelude::*;
 use bevy::render::camera::Projection;
-use bevy::render::mesh::{Indices, PrimitiveTopology};
+use bevy::render::mesh::{PrimitiveTopology};
 use bevy::render::render_asset::RenderAssets;
-use bevy::render::render_resource::{AddressMode, SamplerDescriptor};
 
 use bevy::window::{PresentMode, WindowPlugin};
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
@@ -21,10 +19,9 @@ use bevy_flycam::{FlyCam, MovementSettings, NoCameraPlayerPlugin};
 use crate::assets::AssetsPlugin;
 
 use world::WorldPlugin;
-use world::terrain::Terrain;
 use crate::noise::NoiseSettings;
-use crate::rolling_stock::{RollingStockPlugin};
 use crate::rolling_stock::components::Wagon;
+use crate::world::terrain::types::Terrain;
 
 #[derive(Default, Resource)]
 struct ControlsUiState {
@@ -45,7 +42,11 @@ fn main() {
         }))
         .add_plugins((WireframePlugin, NoCameraPlayerPlugin, AtmospherePlugin, EguiPlugin))
 
-        .add_plugins((AssetsPlugin, WorldPlugin, RollingStockPlugin))
+        .add_plugins((
+            AssetsPlugin,
+            WorldPlugin,
+            //RollingStockPlugin
+        ))
 
         .insert_resource(MovementSettings {
             sensitivity: 0.00012, // default: 0.00012
@@ -53,17 +54,15 @@ fn main() {
         })
         .insert_resource(NoiseSettings::default())
         .insert_resource(WireframeConfig::default())
-        .insert_resource(AtmosphereModel::new(Gradient {
-            sky: LinearRgba::from(WHITE),
-            horizon: LinearRgba::from(WHITE),
-            ground: LinearRgba::from(WHITE),
-        }))
+        .insert_resource(AtmosphereModel::default())
 
         .insert_resource(ControlsUiState::default())
 
         .add_systems(Startup, setup)
         .add_systems(Update, apply_controls_settings)
         .add_systems(Update, controls_ui)
+        .add_systems(Update, terrain_gen_ui)
+
 
         .run();
 }
@@ -103,15 +102,15 @@ fn setup(
     perspective_proj.far = 10000.; // set the far projection to be high to avoid clipping by the skybox
     commands.spawn((
         Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 2.5, 0.0),
+            transform: Transform::from_xyz(0.0, 50.0, 0.0).with_rotation(Quat::from_rotation_x(-std::f32::consts::PI / 2.0)),
             projection: Projection::Perspective(perspective_proj),
             ..default()
         },
         FogSettings {
-            color: Color::linear_rgba(1.0, 1.0, 1.0, 1.0),
+            color: Color::srgba(1.0, 1.0, 1.0, 1.0),
             falloff: FogFalloff::Linear {
-                start: 4500.0,
-                end: 5000.0,
+                start: 4000.0,
+                end: 4500.0,
             },
             ..default()
         },
@@ -152,7 +151,6 @@ fn controls_ui(
     });
 }
 
-#[allow(dead_code)]
 fn terrain_gen_ui(
     mut egui_contexts: EguiContexts,
     mut noise: ResMut<NoiseSettings>,
@@ -164,28 +162,37 @@ fn terrain_gen_ui(
 
         ui.horizontal(|ui| {
             ui.label("Amplitude");
-            let modified = ui.add(egui::Slider::new(&mut noise.amplitude, RangeInclusive::new(0., 15.))).changed();
-            if modified {
+            let lost_focus = ui.add(egui::Slider::new(&mut noise.amplitude, RangeInclusive::new(0., 15.))).lost_focus();
+            if lost_focus {
                 any_changed = true;
             }
         });
         ui.horizontal(|ui| {
             ui.label("Frequency");
-            let modified = ui.add(egui::Slider::new(&mut noise.frequency, RangeInclusive::new(0., 15.))).changed();
-            if modified {
+            let lost_focus = ui.add(egui::Slider::new(&mut noise.frequency, RangeInclusive::new(0., 15.))).lost_focus();
+            if lost_focus {
                 any_changed = true;
             }
         });
         ui.horizontal(|ui| {
-            ui.label("Scale (x, y)");
-            let modified_x = ui.add(egui::Slider::new(&mut noise.scale.0, RangeInclusive::new(0.01, 1000.))).changed();
-            let modified_y = ui.add(egui::Slider::new(&mut noise.scale.1, RangeInclusive::new(0.01, 1000.))).changed();
-            if modified_x || modified_y {
+            ui.label("Number Octaves");
+            let lost_focus = ui.add(egui::Slider::new(&mut noise.num_octaves, RangeInclusive::new(1, 10))).lost_focus();
+            if lost_focus {
                 any_changed = true;
             }
         });
+        ui.horizontal(|ui| {
+            ui.label("Terrain Horizontal Scale");
+            let lost_focus = ui.add(egui::Slider::new(&mut noise.scale, RangeInclusive::new(1.0, 10.0))).lost_focus();
+            if lost_focus {
+                any_changed = true;
+            }
+        });
+        if ui.button("Update").clicked() {
+            any_changed = true;
+        }
     });
     if any_changed {
-        terrain_res.loaded_chunks.clear();
+        terrain_res.invalidate_all_chunks();
     }
 }

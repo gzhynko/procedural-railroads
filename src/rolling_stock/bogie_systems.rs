@@ -3,7 +3,7 @@ use crate::{noise, NoiseSettings, PHYSICS_TIMESTEP};
 use crate::rolling_stock::{utils};
 
 use crate::rolling_stock::components::{AttachedToWagon, Bogie, BogiePhysics, WagonPhysics};
-use crate::world::terrain::FAR_GRID_CHUNK_SIZE;
+use crate::world::terrain::CHUNK_SIZE;
 use crate::world::train_tracks::Track;
 
 const GRAV_ACCELERATION: f32 = -9.8;
@@ -58,7 +58,7 @@ pub(crate) fn set_bogie_static_kinetic_forces(
     for (mut bogie_physics, attached_to) in &mut bogies_query {
         let slope_angle = bogie_physics.current_slope_angle;
         if slope_angle.is_none() {
-            println!("(static+kinetic forces) slope angle is none, skipping this bogie");
+            //println!("(static+kinetic forces) slope angle is none, skipping this bogie");
             continue;
         }
         let slope_cos = slope_angle.unwrap().cos();
@@ -100,7 +100,7 @@ pub(crate) fn set_bogie_vertical_forces(
     for (mut bogie_physics, attached_to) in &mut bogies_query {
         let slope_angle = bogie_physics.current_slope_angle;
         if slope_angle.is_none() {
-            println!("(vertical forces) slope angle is none, skipping this bogie");
+            //println!("(vertical forces) slope angle is none, skipping this bogie");
             continue;
         }
         let slope_sin = slope_angle.unwrap().sin();
@@ -121,7 +121,7 @@ pub(crate) fn update_bogie_current_slope_angle(
 
     let track = track_query.single();
     for (mut bogie_physics, bogie) in &mut bogies_query {
-        let height_fn = noise::get_heightmap_function(FAR_GRID_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::ZERO);
+        let height_fn = noise::get_heightmap_function(CHUNK_SIZE as f32, noise_settings.clone(), Vec3::ZERO);
         let slope_angle = track.get_slope_angle_at_t(bogie.position_on_track, &height_fn);
         bogie_physics.current_slope_angle = slope_angle;
     }
@@ -139,7 +139,7 @@ pub(crate) fn update_bogie_transforms(
     let track = track_query.single();
     for (mut bogie_transform, bogie_physics, bogie) in &mut bogies_query {
         let t = bogie.position_on_track;
-        let height_fn = noise::get_heightmap_function(FAR_GRID_CHUNK_SIZE as f32, noise_settings.clone(), Vec3::ZERO);
+        let height_fn = noise::get_heightmap_function(CHUNK_SIZE as f32, noise_settings.clone(), Vec3::ZERO);
         let point_option = track.get_interpolated_position_at_t(t, &height_fn);
         let angle = bogie_physics.current_slope_angle;
         if angle.is_none() {

@@ -1,6 +1,7 @@
 #import bevy_pbr::{
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::alpha_discard,
+    mesh_view_bindings as view_bindings,
     pbr_types
 }
 
@@ -57,6 +58,14 @@ fn fragment(
     // note this does not include fullscreen postprocessing effects like bloom.
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
 #endif
+
+    let fragment_world_pos = pbr_input.world_position.xyz;
+    let view_world_pos = view_bindings::view.world_position.xyz;
+    let distance_from_view = length(fragment_world_pos.xyz - view_world_pos.xyz);
+
+    let end = 5000.0;
+    let start = 4500.0;
+    out.color.a = clamp((end - distance_from_view) / (end - start), 0.0, 1.0);
 
     return out;
 }
